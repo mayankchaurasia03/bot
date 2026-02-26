@@ -386,19 +386,61 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
+# async def send_otp_email(email: str, otp: str) -> bool:
+#     """Send OTP via Brevo SMTP"""
+#     smtp_host = os.environ.get('BREVO_SMTP_HOST', 'smtp-relay.brevo.com')
+#     smtp_port = int(os.environ.get('BREVO_SMTP_PORT', 587))
+#     smtp_user = os.environ.get('BREVO_SMTP_USER')
+#     smtp_password = os.environ.get('BREVO_SMTP_PASSWORD')
+#     sender_email = os.environ.get('BREVO_SENDER_EMAIL', smtp_user)
+#     sender_name = os.environ.get('BREVO_SENDER_NAME', 'ContextLink AI')
+    
+#     if not smtp_user or not smtp_password:
+#         logger.warning("SMTP credentials not configured, OTP not sent")
+#         return False
+    
+#     html_content = f"""
+#     <html>
+#         <body style="font-family: 'Space Grotesk', Arial, sans-serif; background-color: #fafafa; padding: 40px;">
+#             <div style="max-width: 500px; margin: 0 auto; background: white; border-radius: 8px; padding: 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+#                 <h1 style="color: #0d9488; margin-bottom: 24px; font-size: 24px;">ContextLink AI</h1>
+#                 <p style="color: #333; font-size: 16px; margin-bottom: 16px;">Your verification code is:</p>
+#                 <h2 style="font-size: 36px; letter-spacing: 8px; color: #0d9488; text-align: center; padding: 20px; background: #f0fdfa; border-radius: 8px; margin: 24px 0;">{otp}</h2>
+#                 <p style="color: #666; font-size: 14px;">This code will expire in 10 minutes.</p>
+#                 <p style="color: #666; font-size: 14px; margin-top: 24px;">If you didn't request this code, please ignore this email.</p>
+#             </div>
+#         </body>
+#     </html>
+#     """
+    
+#     message = MIMEMultipart('alternative')
+#     message['Subject'] = f"Your ContextLink AI verification code: {otp}"
+#     message['From'] = f"{sender_name} <{sender_email}>"
+#     message['To'] = email
+#     message.attach(MIMEText(html_content, 'html'))
+    
+#     try:
+#         async with aiosmtplib.SMTP(hostname=smtp_host, port=smtp_port, start_tls=True) as smtp:
+#             await smtp.login(smtp_user, smtp_password)
+#             await smtp.send_message(message)
+#         logger.info(f"OTP email sent to {email}")
+#         return True
+#     except Exception as e:
+#         logger.error(f"Failed to send OTP email: {e}")
+#         return False
+
 async def send_otp_email(email: str, otp: str) -> bool:
-    """Send OTP via Brevo SMTP"""
-    smtp_host = os.environ.get('BREVO_SMTP_HOST', 'smtp-relay.brevo.com')
-    smtp_port = int(os.environ.get('BREVO_SMTP_PORT', 587))
+    """Send OTP via Brevo HTTP API"""
+    
+    brevo_api_key = os.environ.get("BREVO_API_KEY")
     smtp_user = os.environ.get('BREVO_SMTP_USER')
-    smtp_password = os.environ.get('BREVO_SMTP_PASSWORD')
     sender_email = os.environ.get('BREVO_SENDER_EMAIL', smtp_user)
     sender_name = os.environ.get('BREVO_SENDER_NAME', 'ContextLink AI')
-    
-    if not smtp_user or not smtp_password:
-        logger.warning("SMTP credentials not configured, OTP not sent")
+
+    if not brevo_api_key:
+        logger.warning("Brevo API key not configured, OTP not sent")
         return False
-    
+
     html_content = f"""
     <html>
         <body style="font-family: 'Space Grotesk', Arial, sans-serif; background-color: #fafafa; padding: 40px;">
@@ -412,22 +454,40 @@ async def send_otp_email(email: str, otp: str) -> bool:
         </body>
     </html>
     """
-    
-    message = MIMEMultipart('alternative')
-    message['Subject'] = f"Your ContextLink AI verification code: {otp}"
-    message['From'] = f"{sender_name} <{sender_email}>"
-    message['To'] = email
-    message.attach(MIMEText(html_content, 'html'))
-    
+
     try:
-        async with aiosmtplib.SMTP(hostname=smtp_host, port=smtp_port, start_tls=True) as smtp:
-            await smtp.login(smtp_user, smtp_password)
-            await smtp.send_message(message)
-        logger.info(f"OTP email sent to {email}")
-        return True
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "accept": "application/json",
+                    "api-key": brevo_api_key,
+                    "content-type": "application/json"
+                },
+                json={
+                    "sender": {
+                        "name": sender_name,
+                        "email": sender_email
+                    },
+                    "to": [
+                        {"email": email}
+                    ],
+                    "subject": f"Your ContextLink AI verification code: {otp}",
+                    "htmlContent": html_content
+                }
+            )
+
+        if response.status_code in [200, 201, 202]:
+            logger.info(f"OTP email sent to {email}")
+            return True
+        else:
+            logger.error(f"Brevo API error: {response.status_code} - {response.text}")
+            return False
+
     except Exception as e:
         logger.error(f"Failed to send OTP email: {e}")
         return False
+
 
 async def scrape_url(url: str) -> Optional[str]:
     """Scrape content from a URL"""
