@@ -496,11 +496,13 @@ async def scrape_url(url: str) -> Optional[str]:
             response = await client.get(url, follow_redirects=True)
             response.raise_for_status()
             
-            soup = BeautifulSoup(response.text, 'lxml')
+            soup = BeautifulSoup(response.text, 'html.parser')
             
             # Remove script and style elements
-            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
-                element.decompose()
+            # for element in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
+            #     element.decompose()
+            for tag in soup(["script", "style", "noscript"]):
+                tag.decompose()
             
             # Get text content
             text = soup.get_text(separator=' ', strip=True)
@@ -508,10 +510,12 @@ async def scrape_url(url: str) -> Optional[str]:
             # Clean up whitespace
             text = re.sub(r'\s+', ' ', text)
             
-            return text[:50000] if len(text) > 50000 else text  # Limit to 50k chars
+            # return text[:50000] if len(text) > 50000 else text  # Limit to 50k chars
+            return text
     except Exception as e:
         logger.error(f"Error scraping {url}: {e}")
         return None
+
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
     """Split text into overlapping chunks"""
